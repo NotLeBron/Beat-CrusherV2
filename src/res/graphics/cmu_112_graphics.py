@@ -1,4 +1,4 @@
-# cmu_112_graphics_openCV.py
+# cmu_112_graphics.py
 # version 0.9.0
 
 # Pre-release for CMU 15-112-s21
@@ -178,9 +178,6 @@ else:
 try: import requests
 except ModuleNotFoundError: failedImport('requests')
 
-try: import cv2 #for openCV
-except ModuleNotFoundError: failedImport('cv2')
-
 def getHash(obj):
     # This is used to detect MVC violations in redrawAll
     # @TODO: Make this more robust and efficient
@@ -263,7 +260,6 @@ class App(object):
     def mouseDragged(app, event): pass  # use event.x and event.y
     def timerFired(app): pass           # respond to timer events
     def sizeChanged(app): pass          # respond to window size changes
-    def cameraFired(app): pass          # respond to camera events
 
     ####################################
     # Implementation:
@@ -271,18 +267,13 @@ class App(object):
 
     def __init__(app, width=300, height=300, x=0, y=0, title=None, autorun=True, mvcCheck=True, logDrawingCalls=True):
         app.winx, app.winy, app.width, app.height = x, y, width, height
-        app.timerDelay = 10     # milliseconds
+        app.timerDelay = 100     # milliseconds
         app.mouseMovedDelay = 50 # ditto
         app._title = title
         app._mvcCheck = mvcCheck
         app._logDrawingCalls = logDrawingCalls
         app._running = app._paused = False
         app._mousePressedOutsideWindow = False
-        app._mousePressedOutsideWindow = False
-        #Start Camera Capture
-        app.cameraIndex = 0
-        app.camera = cv2.VideoCapture(app.cameraIndex)
-        app.frame = None
         if autorun: app.run()
 
     def __repr__(app):
@@ -410,7 +401,6 @@ class App(object):
         if ('deferredRedrawAll' in app._afterIdMap): return # wait for pending call
         app._canvas.inRedrawAll = True
         app._canvas.delete(ALL)
-        # app.drawCamera(app._canvas) # uncomment this only if you want the camera to appear immediately
         width,outline = (10,'red') if app._paused else (0,'white')
         app._canvas.create_rectangle(0, 0, app.width, app.height, fill='white', width=width, outline=outline)
         app._canvas.loggedDrawingCalls = [ ]
@@ -551,11 +541,9 @@ class App(object):
 
     @_safeMethod
     def _timerFiredWrapper(app):
-        if (not app._running) or (not app._methodIsOverridden('timerFired') and app._methodIsOverridden('cameraFired')): return
+        if (not app._running) or (not app._methodIsOverridden('timerFired')): return
         if (not app._paused):
             app.timerFired()
-            _, app.frame = app.camera.read()
-            app.cameraFired()
             app._redrawAllWrapper()
         app._deferredMethodCall(afterId='_timerFiredWrapper', afterDelay=app.timerDelay, afterFn=app._timerFiredWrapper)
 
@@ -599,18 +587,6 @@ class App(object):
                 app._redrawAllWrapper()
         if (mouseMovedExists or mouseDraggedExists):
             app._deferredMethodCall(afterId='mouseMotionWrapper', afterDelay=app.mouseMovedDelay, afterFn=app._mouseMotionWrapper)
-
-    def opencvToTk(app):
-        """Convert an opencv image to a tkinter image, to display in canvas."""
-        rgb_image = cv2.cvtColor(app.frame, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(rgb_image)
-        tkImage = ImageTk.PhotoImage(image=pil_img)
-        return tkImage
-        
-    def drawCamera(app, canvas):
-        if app.frame is None: return
-        tkImage = app.opencvToTk()
-        canvas.create_image(app.width / 2, app.height / 2, image=tkImage)
 
     def updateTitle(app):
         app._title = app._title or type(app).__name__
@@ -672,7 +648,6 @@ class App(object):
         for afterId in app._afterIdMap: app._root.after_cancel(app._afterIdMap[afterId])
         app._afterIdMap.clear() # for safety
         app.appStopped()
-        app.camera.release()
         print(app.getQuitMessage())
 
 ####################################
@@ -712,7 +687,6 @@ class TopLevelApp(App):
     def mouseDragged(app, event): app._callFn('mouseDragged', app, event)
     def timerFired(app): app._callFn('timerFired', app)
     def sizeChanged(app): app._callFn('sizeChanged', app)
-    def cameraFired(app): app._callFn('cameraFired', app)
 
 ####################################
 # ModalApp + Mode:
@@ -722,14 +696,17 @@ class TopLevelApp(App):
 # For now, only include modes in top-level apps (see above).
 class Mode(object):
     def __repr__(self): return f'<{self.__class__.__name__} object>'
+
 class ModalApp(App):
     def __init__(app, *args, **kwargs):
         app._mode = None
         super().__init__(*args, **kwargs)
+
     def setMode(app, mode):
         if (not isinstance(mode, Mode)):
             raise Exception('mode must be an instance of Mode')
         app._mode = mode
+
     def _callFn(app, fn, *args):
         if (app._mode == None):
             raise Exception('ModalApp must have a mode (use app.setMode())')
@@ -738,6 +715,7 @@ class ModalApp(App):
         method = mode.__class__.__dict__.get(fn) # get method as fn
         if (method != None):
             method(*args)
+
     def redrawAll(app, canvas): app._callFn('redrawAll', app, canvas)
     #def appStarted(app): app._callFn('appStarted', app)
     #def appStopped(app): app._callFn('appStopped', app)

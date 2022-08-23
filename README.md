@@ -10,8 +10,8 @@ Terrible clone of Beat Saber
 ## Dependencies:
 
 - Pygame
+- screeninfo
 - cmu_112_graphics
-- numpy
 
 
 ## Installation Instructions
